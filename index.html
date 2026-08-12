@@ -218,7 +218,7 @@ function renderContentGenerator(){
       </div>
       <button class="btn" id="cg-generate" style="margin-top:16px;" ${state.loading.content?'disabled':''}>${ICONS.sparkle} Generate content &amp; video script</button>
       ${state.loading.content ? `<div class="loading"><div class="spinner"></div> Researching and writing for ${c.platforms.join(', ')||'selected platforms'}…</div>` : ''}
-      <div id="cg-error"></div>
+      ${c.error ? `<div class="error-box">${escapeHtml(c.error)}</div>` : ''}
     </div>
 
     ${c.output ? `
@@ -262,8 +262,9 @@ function hashtagBlock(tags){
 async function generateContent(){
   const c = state.cg;
   c.propertyName = document.getElementById('cg-name').value.trim();
-  if(!c.propertyName){ showError('cg-error','Add a property name first.'); return; }
-  if(c.platforms.length===0){ showError('cg-error','Select at least one platform.'); return; }
+  c.error = '';
+  if(!c.propertyName){ c.error = 'Add a property name first.'; render(); return; }
+  if(c.platforms.length===0){ c.error = 'Select at least one platform.'; render(); return; }
   state.loading.content = true; c.output = null; render();
   try{
     const schemaParts = c.platforms.map(p => {
@@ -277,7 +278,7 @@ async function generateContent(){
     c.output = parsed;
     state.contentHistory.unshift({ id:uid(), propertyName:c.propertyName, platforms:c.platforms.slice(), output:parsed, createdAt:todayISO() });
     await storageSet('content-history', state.contentHistory);
-  }catch(e){ showError('cg-error', e.message); }
+  }catch(e){ c.error = e.message || 'Something went wrong generating content.'; }
   state.loading.content = false; render();
 }
 
