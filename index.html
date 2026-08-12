@@ -138,7 +138,15 @@ async function callClaude(system, userMsg, maxTokens=1000, useSearch=false){
   if(!text) throw new Error("No response generated.");
   return text;
 }
-function stripFences(t){ return t.replace(/^```json\s*/i,'').replace(/^```\s*/,'').replace(/```\s*$/,'').trim(); }
+function stripFences(t){
+  t = t.replace(/^```json\s*/i,'').replace(/^```\s*/,'').replace(/```\s*$/,'').trim();
+  const start = t.indexOf('{');
+  const end = t.lastIndexOf('}');
+  if(start !== -1 && end !== -1 && end > start){
+    return t.slice(start, end+1);
+  }
+  return t;
+}
 
 /* ---------------- State ---------------- */
 let state = {
@@ -287,7 +295,8 @@ async function generateContent(){
     });
     const system = `You are a social content and video script writer for a Singapore property agent. Use web search to ground your writing in real, publicly verifiable facts about the property (location, MRT, tenure, developer, etc.) — if you cannot verify a fact, do not state it as certain. Return ONLY valid JSON, no preamble, no markdown fences. Schema: {${schemaParts.join(', ')}}. Tone: warm, professional, natural Singaporean register, no exaggerated or misleading sales language, no guaranteed-return claims.`;
     const user = `Property: ${c.propertyName}\nSelected keywords/angles to weave in: ${c.selectedKeywords.join(', ')||'general appeal'}\nPlatforms needed: ${c.platforms.join(', ')}`;
-    const raw = await callClaude(system, user, 3500, true);
+    const maxTok = Math.min(8000, 900 + c.platforms.length * 1000);
+    const raw = await callClaude(system, user, maxTok, true);
     const parsed = JSON.parse(stripFences(raw));
     c.output = parsed;
     state.contentHistory.unshift({ id:uid(), propertyName:c.propertyName, platforms:c.platforms.slice(), output:parsed, createdAt:todayISO() });
