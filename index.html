@@ -16,7 +16,7 @@
   :root{
     --bg:#12151c; --surface:#1b202b; --surface-raised:#232a38; --border:#2c3444;
     --text:#ece8e0; --text-dim:#8f96a8;
-    --brass:#c9a24b; --coral:#e2725b; --slate:#6b8cae; --sage:#7c9a82; --teal:#5aa39a;
+    --brass:#c9a24b; --coral:#e2725b; --slate:#6b8cae; --sage:#7c9a82; --teal:#5aa39a; --rose:#c9739a; --crimson:#b2553f;
     --font-display:'Fraunces', serif; --font-body:'IBM Plex Sans', sans-serif; --font-mono:'IBM Plex Mono', monospace;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
@@ -129,11 +129,13 @@ function stripFences(t){ return t.replace(/^```json\s*/i,'').replace(/^```\s*/,'
 /* ---------------- State ---------------- */
 let state = {
   tab:'content', subTab:'', leads:[], resources:[], followups:[], contentHistory:[],
-  cg:{ propertyName:'', research:'', availableKeywords:[], selectedKeywords:[], contentType:'Content', output:null },
+  cg:{ propertyName:'', selectedKeywords:[], platforms:[], output:null },
   loading:{}, openLead:null,
 };
 
-const CONTENT_TYPES = ['Content','Video Script','Slides'];
+const READY_KEYWORDS = ['MRT','PSF','Developer','Tenure','TOP Date','Floor Plan','Unit Mix','Freehold','New Launch','Resale','Just TOP','Amenities','Nearby Schools','Rental Yield','Investment Potential','Renovation/Condition','View/Facing','Maintenance Fee','Family-Friendly','First-Time Buyer','HDB Upgrader','Downsizing'];
+const SM_PLATFORMS = ['Instagram','Facebook','TikTok','Xiaohongshu','YouTube'];
+const PLATFORM_COLORS = {Instagram:'var(--coral)', Facebook:'var(--slate)', TikTok:'var(--teal)', Xiaohongshu:'var(--rose)', YouTube:'var(--crimson)'};
 const SOURCES = ['Instagram DM','TikTok DM','Facebook Messenger','WhatsApp','Xiaohongshu','Property portal','Referral','Other'];
 const NEXT_ACTIONS = ['Call lead','Send WhatsApp','Send price list','Confirm eligibility','Arrange viewing','Confirm viewing','Follow up after viewing','Re-engage inactive lead','Close lead'];
 const STATUSES = ['New','Contacted','Replied','Qualified','Viewing Booked','Negotiating','Closed Won','Closed Lost'];
@@ -195,64 +197,56 @@ function renderContentGenerator(){
   const c = state.cg;
   return `
     <div class="page-title">Content Generator</div>
-    <div class="page-sub">Key in a property, pick a few keywords, choose your format, and generate.</div>
+    <div class="page-sub">Key in a property, pick relevant keywords and platforms, then generate content and video scripts with a live preview.</div>
 
     <div class="card">
       <div class="section-h">1. Property name</div>
-      <div class="row2">
-        <div class="field" style="margin-bottom:0;"><input id="cg-name" value="${escapeAttr(c.propertyName)}" placeholder="e.g. Thomson Reserve, or any HDB/resale/new launch name"/></div>
-        <div style="display:flex; align-items:flex-end;"><button class="btn" id="cg-find-kw" ${state.loading.keywords?'disabled':''}>${ICONS.sparkle} Find keywords</button></div>
-      </div>
-      ${state.loading.keywords ? `<div class="loading"><div class="spinner"></div> Researching the property and finding keywords…</div>` : ''}
-      <div id="cg-kw-error"></div>
+      <input id="cg-name" value="${escapeAttr(c.propertyName)}" placeholder="e.g. Thomson Reserve, or any HDB/resale/new launch name" style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:9px 11px; color:var(--text); font-size:13.5px;"/>
     </div>
 
-    ${c.availableKeywords.length>0 ? `
-      <div class="card">
-        <div class="section-h">2. Select a few keywords</div>
-        <div class="chip-group">
-          ${c.availableKeywords.map(k=>`<div class="chip ${c.selectedKeywords.includes(k)?'selected':''}" data-kw="${escapeAttr(k)}">${escapeHtml(k)}</div>`).join('')}
-        </div>
+    <div class="card">
+      <div class="section-h">2. Select relevant keywords</div>
+      <div class="chip-group">
+        ${READY_KEYWORDS.map(k=>`<div class="chip ${c.selectedKeywords.includes(k)?'selected':''}" data-kw="${escapeAttr(k)}">${k}</div>`).join('')}
       </div>
+    </div>
 
-      <div class="card">
-        <div class="section-h">3. What do you want to generate?</div>
-        <div class="chip-group">
-          ${CONTENT_TYPES.map(t=>`<div class="chip ${c.contentType===t?'selected':''}" data-content-type="${t}">${t}</div>`).join('')}
-        </div>
-        <button class="btn" id="cg-generate" style="margin-top:16px;" ${state.loading.content?'disabled':''}>${ICONS.sparkle} Generate ${c.contentType}</button>
-        ${state.loading.content ? `<div class="loading"><div class="spinner"></div> Writing your ${c.contentType.toLowerCase()}…</div>` : ''}
-        <div id="cg-error"></div>
+    <div class="card">
+      <div class="section-h">3. Select platforms</div>
+      <div class="chip-group">
+        ${SM_PLATFORMS.map(p=>`<div class="chip ${c.platforms.includes(p)?'selected':''}" data-platform="${p}" style="${c.platforms.includes(p)?`background:${PLATFORM_COLORS[p]}; border-color:${PLATFORM_COLORS[p]}; color:#12151c;`:''}">${p}</div>`).join('')}
       </div>
+      <button class="btn" id="cg-generate" style="margin-top:16px;" ${state.loading.content?'disabled':''}>${ICONS.sparkle} Generate content &amp; video script</button>
+      ${state.loading.content ? `<div class="loading"><div class="spinner"></div> Researching and writing for ${c.platforms.join(', ')||'selected platforms'}…</div>` : ''}
+      <div id="cg-error"></div>
+    </div>
+
+    ${c.output ? `
+      <div class="page-sub" style="margin-top:6px; margin-bottom:14px;">Preview</div>
+      ${Object.keys(c.output).map(p=>renderPreviewCard(p, c.output[p])).join('')}
     ` : ''}
-
-    ${c.output ? renderGeneratedOutput(c.contentType, c.output) : ''}
 
     ${state.contentHistory.length>0 ? `
       <div class="card">
         <div class="section-h">Recent content</div>
-        ${state.contentHistory.slice(0,5).map(h=>`<div class="resource-item"><div class="resource-title">${escapeHtml(h.propertyName)} — ${escapeHtml(h.contentType)}</div><div class="resource-cat">${fmtDate(h.createdAt)}</div></div>`).join('')}
+        ${state.contentHistory.slice(0,5).map(h=>`<div class="resource-item"><div class="resource-title">${escapeHtml(h.propertyName)} — ${h.platforms.join(', ')}</div><div class="resource-cat">${fmtDate(h.createdAt)}</div></div>`).join('')}
       </div>
     ` : ''}
   `;
 }
 
-function renderGeneratedOutput(type, d){
-  let html = `<div class="card"><div class="section-h"><span class="platform-tag">${escapeHtml(type)}</span></div>`;
-  if(type==='Content'){
-    html += fieldBlock('Caption', d.caption) + hashtagBlock(d.hashtags) + fieldBlock('CTA', d.cta);
-  } else if(type==='Video Script'){
-    html += fieldBlock('Hook (first 3 seconds)', d.hook) + fieldBlock('Scene-by-scene script', d.script) + fieldBlock('Caption', d.captionText) + fieldBlock('CTA', d.cta);
-  } else if(type==='Slides'){
-    html += `<div class="output-card"><div class="output-head"><h4>Deck title</h4><button class="copy-btn" data-copy="${escapeAttr(d.deckTitle||'')}">${ICONS.copy} Copy</button></div><div class="output-body">${escapeHtml(d.deckTitle||'')}</div></div>`;
-    (d.slides||[]).forEach((s,i)=>{
-      const slideText = s.title + '\n' + (s.bullets||[]).map(b=>'- '+b).join('\n');
-      html += `<div class="output-card"><div class="output-head"><h4>Slide ${i+1}</h4><button class="copy-btn" data-copy="${escapeAttr(slideText)}">${ICONS.copy} Copy</button></div><div class="output-body"><strong>${escapeHtml(s.title)}</strong>\n${(s.bullets||[]).map(b=>'• '+b).join('\n')}</div></div>`;
-    });
+function renderPreviewCard(platform, d){
+  const color = PLATFORM_COLORS[platform] || 'var(--brass)';
+  let html = `<div class="card" style="border-top:3px solid ${color}; padding-top:16px;">
+    <div class="section-h" style="color:${color};">${escapeHtml(platform)} Preview</div>`;
+  if(d.content){
+    html += `<div style="font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim); margin:8px 0 4px; font-weight:600;">Content / Post</div>`;
+    html += fieldBlock('Caption', d.content.caption) + hashtagBlock(d.content.hashtags) + fieldBlock('CTA', d.content.cta);
   }
-  html += `<button class="btn btn-ghost btn-sm" data-compliance="1" ${state.loading.compliance?'disabled':''}>Check compliance</button>`;
-  if(state.loading.compliance) html += `<div class="loading"><div class="spinner"></div> Checking…</div>`;
-  if(state.complianceResult) html += `<div class="warn-box">${escapeHtml(state.complianceResult)}</div>`;
+  if(d.videoScript){
+    html += `<div style="font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim); margin:16px 0 4px; font-weight:600;">Video Script</div>`;
+    html += fieldBlock('Hook (first 3 seconds)', d.videoScript.hook) + fieldBlock('Scene-by-scene script', d.videoScript.script) + fieldBlock('Caption', d.videoScript.captionText) + fieldBlock('CTA', d.videoScript.cta);
+  }
   html += `</div>`;
   return html;
 }
@@ -265,60 +259,26 @@ function hashtagBlock(tags){
   return `<div class="output-card"><div class="output-head"><h4>Hashtags</h4><button class="copy-btn" data-copy="${escapeAttr(tags.join(' '))}">${ICONS.copy} Copy all</button></div><div class="hashtags">${tags.map(t=>`<span class="hashtag">${escapeHtml(t)}</span>`).join('')}</div></div>`;
 }
 
-async function findKeywords(){
-  const name = document.getElementById('cg-name').value.trim();
-  if(!name){ showError('cg-kw-error','Enter a property name first.'); return; }
-  state.cg.propertyName = name;
-  state.cg.output = null; state.complianceResult = '';
-  state.loading.keywords = true; render();
-  try{
-    const system = `You are researching a Singapore property for a real estate agent's marketing content. Use web search to find factual, publicly available details (location, MRT proximity, tenure, developer, general project facts). If you cannot verify something, do not state it as fact. Then, based on the property and what you found, suggest 10-14 short marketing keywords/phrases useful for social content (mix of location, lifestyle, and property-type angles). Return ONLY valid JSON, no preamble, no markdown fences: {"research": string (under 200 words, your findings, note "Verification required" for anything unconfirmed), "keywords": [string, ...10-14 items]}`;
-    const user = `Property name: ${name}`;
-    const raw = await callClaude(system, user, 1200, true);
-    const parsed = JSON.parse(stripFences(raw));
-    state.cg.research = parsed.research || '';
-    state.cg.availableKeywords = parsed.keywords || [];
-    state.cg.selectedKeywords = [];
-  }catch(e){ showError('cg-kw-error', e.message); }
-  state.loading.keywords = false; render();
-}
-
 async function generateContent(){
   const c = state.cg;
+  c.propertyName = document.getElementById('cg-name').value.trim();
   if(!c.propertyName){ showError('cg-error','Add a property name first.'); return; }
-  state.loading.content = true; state.complianceResult = ''; render();
+  if(c.platforms.length===0){ showError('cg-error','Select at least one platform.'); return; }
+  state.loading.content = true; c.output = null; render();
   try{
-    let schema, instructions;
-    if(c.contentType==='Content'){
-      schema = `{"caption": string, "hashtags": [string,...8-12 items], "cta": string}`;
-      instructions = `Write a ready-to-post social caption.`;
-    } else if(c.contentType==='Video Script'){
-      schema = `{"hook": string, "script": string (scene-by-scene, 30-45 seconds), "captionText": string, "cta": string}`;
-      instructions = `Write a short vertical video script (TikTok/Reels style) with a strong 3-second hook.`;
-    } else {
-      schema = `{"deckTitle": string, "slides": [{"title": string, "bullets": [string,...3-5 items]}, ...5-8 slides]}`;
-      instructions = `Write a slide-by-slide outline suitable for a short property presentation deck.`;
-    }
-    const system = `You are a content writer for a Singapore property agent. ${instructions} Return ONLY valid JSON, no preamble, no markdown fences. Schema: ${schema}. Tone: warm, professional, natural Singaporean register, no exaggerated or misleading sales language, no guaranteed-return claims. If a fact is marked "Verification required" in the research, do not state it as certain.`;
-    const user = `Property: ${c.propertyName}\nResearch/facts: ${c.research || 'general facts for this property type'}\nSelected keywords/angles: ${c.selectedKeywords.join(', ')||'general appeal'}`;
-    const raw = await callClaude(system, user, 2000);
+    const schemaParts = c.platforms.map(p => {
+      const note = p==='Xiaohongshu' ? ' (write content.caption, content.hashtags, videoScript.hook, videoScript.script and videoScript.captionText in natural Simplified Chinese for a Singapore audience)' : '';
+      return `"${p}": {"content": {"caption": string, "hashtags": [string,...8-12 items], "cta": string}, "videoScript": {"hook": string, "script": string (scene-by-scene, 30-45 seconds), "captionText": string, "cta": string}}${note}`;
+    });
+    const system = `You are a social content and video script writer for a Singapore property agent. Use web search to ground your writing in real, publicly verifiable facts about the property (location, MRT, tenure, developer, etc.) — if you cannot verify a fact, do not state it as certain. Return ONLY valid JSON, no preamble, no markdown fences. Schema: {${schemaParts.join(', ')}}. Tone: warm, professional, natural Singaporean register, no exaggerated or misleading sales language, no guaranteed-return claims.`;
+    const user = `Property: ${c.propertyName}\nSelected keywords/angles to weave in: ${c.selectedKeywords.join(', ')||'general appeal'}\nPlatforms needed: ${c.platforms.join(', ')}`;
+    const raw = await callClaude(system, user, 3500, true);
     const parsed = JSON.parse(stripFences(raw));
     c.output = parsed;
-    state.contentHistory.unshift({ id:uid(), propertyName:c.propertyName, contentType:c.contentType, output:parsed, createdAt:todayISO() });
+    state.contentHistory.unshift({ id:uid(), propertyName:c.propertyName, platforms:c.platforms.slice(), output:parsed, createdAt:todayISO() });
     await storageSet('content-history', state.contentHistory);
   }catch(e){ showError('cg-error', e.message); }
   state.loading.content = false; render();
-}
-
-async function checkCompliance(){
-  const d = state.cg.output;
-  state.loading.compliance = true; render();
-  try{
-    const system = `You are a lightweight advertising-compliance reviewer for Singapore property marketing content. Flag (in 2-4 short bullet points): unsupported/guaranteed-return claims, unverified prices, misleading urgency, discriminatory wording, or missing agent CTA/identification. If none found, say "No issues flagged — agent should still verify against current CEA/URA/HDB/PDPA requirements before posting." Keep it brief.`;
-    const text = JSON.stringify(d);
-    state.complianceResult = await callClaude(system, text, 300);
-  }catch(e){}
-  state.loading.compliance = false; render();
 }
 
 /* ================= LEAD INBOX ================= */
@@ -613,15 +573,13 @@ function attachHandlers(){
   document.querySelectorAll('[data-nav]').forEach(el=>{ el.onclick=()=>{ state.tab=el.getAttribute('data-nav'); state.subTab=''; render(); }; });
   document.querySelectorAll('[data-subtab]').forEach(el=>{ el.onclick=()=>{ state.subTab=el.getAttribute('data-subtab'); render(); }; });
 
-  const findKwBtn = document.getElementById('cg-find-kw'); if(findKwBtn) findKwBtn.onclick = findKeywords;
   document.querySelectorAll('[data-kw]').forEach(el=>{
     el.onclick = () => { const k=el.getAttribute('data-kw'); const i=state.cg.selectedKeywords.indexOf(k); if(i>-1) state.cg.selectedKeywords.splice(i,1); else state.cg.selectedKeywords.push(k); render(); };
   });
-  document.querySelectorAll('[data-content-type]').forEach(el=>{
-    el.onclick = () => { state.cg.contentType = el.getAttribute('data-content-type'); render(); };
+  document.querySelectorAll('[data-platform]').forEach(el=>{
+    el.onclick = () => { const p=el.getAttribute('data-platform'); const i=state.cg.platforms.indexOf(p); if(i>-1) state.cg.platforms.splice(i,1); else state.cg.platforms.push(p); render(); };
   });
   const genBtn = document.getElementById('cg-generate'); if(genBtn) genBtn.onclick = generateContent;
-  document.querySelectorAll('[data-compliance]').forEach(el=>{ el.onclick=checkCompliance; });
 
   const liAdd = document.getElementById('li-add'); if(liAdd) liAdd.onclick = addLead;
   const csvInput = document.getElementById('li-csv'); if(csvInput) csvInput.onchange = (e)=>{ if(e.target.files[0]) handleCsvImport(e.target.files[0]); };
