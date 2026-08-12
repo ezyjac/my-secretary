@@ -579,6 +579,8 @@ function attachHandlers(){
   document.querySelectorAll('[data-platform]').forEach(el=>{
     el.onclick = () => { const p=el.getAttribute('data-platform'); const i=state.cg.platforms.indexOf(p); if(i>-1) state.cg.platforms.splice(i,1); else state.cg.platforms.push(p); render(); };
   });
+  const nameInput = document.getElementById('cg-name');
+  if(nameInput) nameInput.oninput = () => { state.cg.propertyName = nameInput.value; };
   const genBtn = document.getElementById('cg-generate'); if(genBtn) genBtn.onclick = generateContent;
 
   const liAdd = document.getElementById('li-add'); if(liAdd) liAdd.onclick = addLead;
