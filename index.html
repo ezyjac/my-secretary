@@ -114,14 +114,28 @@ async function storageGet(key){ try{ const r = await window.storage.get(key, fal
 async function storageSet(key, value){ try{ await window.storage.set(key, JSON.stringify(value), false); }catch(e){ console.error(e); } }
 
 /* ---------------- Claude API ---------------- */
+function getAccessCode(){
+  let code = localStorage.getItem('funnelAccessCode');
+  if(!code){
+    code = window.prompt('Enter the access code to use AI generation (ask Jacqueline if you don\'t have one):');
+    if(code) localStorage.setItem('funnelAccessCode', code.trim());
+  }
+  return (code || '').trim();
+}
+
 async function callClaude(system, userMsg, maxTokens=1000, useSearch=false){
   const body = { model:"claude-sonnet-4-6", max_tokens:maxTokens, system, messages:[{role:"user", content:userMsg}] };
   if(useSearch) body.tools = [{type:"web_search_20250305", name:"web_search"}];
+  const accessCode = getAccessCode();
   let res;
   try{
-    res = await fetch("https://property-funnel-proxy.ezyjac1.workers.dev/", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
+    res = await fetch("https://property-funnel-proxy.ezyjac1.workers.dev/", { method:"POST", headers:{"Content-Type":"application/json", "X-Access-Code": accessCode}, body: JSON.stringify(body) });
   }catch(networkErr){
     throw new Error("Could not reach the proxy server (network/CORS error): " + networkErr.message);
+  }
+  if(res.status === 401){
+    localStorage.removeItem('funnelAccessCode');
+    throw new Error("Access code was invalid — it's been cleared, please try again and re-enter it.");
   }
   if(!res.ok){
     let detail = '';
