@@ -117,8 +117,22 @@ async function storageSet(key, value){ try{ await window.storage.set(key, JSON.s
 async function callClaude(system, userMsg, maxTokens=1000, useSearch=false){
   const body = { model:"claude-sonnet-4-6", max_tokens:maxTokens, system, messages:[{role:"user", content:userMsg}] };
   if(useSearch) body.tools = [{type:"web_search_20250305", name:"web_search"}];
-  const res = await fetch("https://property-funnel-proxy.ezyjac1.workers.dev/", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
-  if(!res.ok) throw new Error("Generation failed. Please try again.");
+  let res;
+  try{
+    res = await fetch("https://property-funnel-proxy.ezyjac1.workers.dev/", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
+  }catch(networkErr){
+    throw new Error("Could not reach the proxy server (network/CORS error): " + networkErr.message);
+  }
+  if(!res.ok){
+    let detail = '';
+    try{
+      const errJson = await res.json();
+      detail = (errJson && errJson.error && (errJson.error.message || errJson.error)) || JSON.stringify(errJson);
+    }catch(e){
+      try{ detail = await res.text(); }catch(e2){ detail = ''; }
+    }
+    throw new Error(`Generation failed (HTTP ${res.status}): ${detail || 'no further detail returned'}`);
+  }
   const data = await res.json();
   const text = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text||"").join("\n").trim();
   if(!text) throw new Error("No response generated.");
