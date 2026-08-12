@@ -117,7 +117,7 @@ async function storageSet(key, value){ try{ await window.storage.set(key, JSON.s
 async function callClaude(system, userMsg, maxTokens=1000, useSearch=false){
   const body = { model:"claude-sonnet-4-6", max_tokens:maxTokens, system, messages:[{role:"user", content:userMsg}] };
   if(useSearch) body.tools = [{type:"web_search_20250305", name:"web_search"}];
-  const res = await fetch("https://api.anthropic.com/v1/messages", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
+  const res = await fetch("https://property-funnel-proxy.ezyjac1.workers.dev/", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
   if(!res.ok) throw new Error("Generation failed. Please try again.");
   const data = await res.json();
   const text = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text||"").join("\n").trim();
@@ -129,13 +129,11 @@ function stripFences(t){ return t.replace(/^```json\s*/i,'').replace(/^```\s*/,'
 /* ---------------- State ---------------- */
 let state = {
   tab:'content', subTab:'', leads:[], resources:[], followups:[], contentHistory:[],
-  cg:{ propertyName:'', category:'New Launch', district:'', keyFacts:'', research:'', spotlights:[], keywords:[], platforms:[], output:null },
+  cg:{ propertyName:'', research:'', availableKeywords:[], selectedKeywords:[], contentType:'Content', output:null },
   loading:{}, openLead:null,
 };
 
-const CATEGORIES = ['New Launch','Resale Condominium','Just TOP Condominium','HDB Resale','Executive Condominium','Landed','Rental'];
-const SPOTLIGHTS = ['Location & connectivity','MRT convenience','Nearby schools','Family lifestyle','Investment potential','Rental demand','Entry price / psf value','New launch opportunity','Just-TOP move-in ready','Freehold/tenure advantage','Amenities & shopping','First-time homebuyer','HDB upgrader','Downsizer-friendly','Urgent sale / new listing','Open house','Buyer pain point & solution'];
-const PLATFORMS = ['TikTok','Instagram','Facebook','Xiaohongshu','YouTube','WhatsApp'];
+const CONTENT_TYPES = ['Content','Video Script','Slides'];
 const SOURCES = ['Instagram DM','TikTok DM','Facebook Messenger','WhatsApp','Xiaohongshu','Property portal','Referral','Other'];
 const NEXT_ACTIONS = ['Call lead','Send WhatsApp','Send price list','Confirm eligibility','Arrange viewing','Confirm viewing','Follow up after viewing','Re-engage inactive lead','Close lead'];
 const STATUSES = ['New','Contacted','Replied','Qualified','Viewing Booked','Negotiating','Closed Won','Closed Lost'];
@@ -197,88 +195,65 @@ function renderContentGenerator(){
   const c = state.cg;
   return `
     <div class="page-title">Content Generator</div>
-    <div class="page-sub">Enter a property, research it, pick your angle, and generate platform-ready posts.</div>
+    <div class="page-sub">Key in a property, pick a few keywords, choose your format, and generate.</div>
 
     <div class="card">
-      <div class="section-h">1. Property details</div>
-      <div class="row3">
-        <div class="field"><label>Property name</label><input id="cg-name" value="${escapeAttr(c.propertyName)}" placeholder="e.g. Thomson Reserve"/></div>
-        <div class="field"><label>Category</label><select id="cg-category">${CATEGORIES.map(cat=>`<option ${c.category===cat?'selected':''}>${cat}</option>`).join('')}</select></div>
-        <div class="field"><label>District / area</label><input id="cg-district" value="${escapeAttr(c.district)}" placeholder="e.g. District 20, Upper Thomson"/></div>
+      <div class="section-h">1. Property name</div>
+      <div class="row2">
+        <div class="field" style="margin-bottom:0;"><input id="cg-name" value="${escapeAttr(c.propertyName)}" placeholder="e.g. Thomson Reserve, or any HDB/resale/new launch name"/></div>
+        <div style="display:flex; align-items:flex-end;"><button class="btn" id="cg-find-kw" ${state.loading.keywords?'disabled':''}>${ICONS.sparkle} Find keywords</button></div>
       </div>
-      <div class="field"><label>Known facts (optional — MRT, tenure, developer, price/psf, TOP date, USPs)</label><textarea id="cg-facts">${escapeHtml(c.keyFacts)}</textarea></div>
-      <button class="btn" id="cg-research" ${state.loading.research?'disabled':''}>${ICONS.sparkle} Research this property</button>
-      ${state.loading.research ? `<div class="loading"><div class="spinner"></div> Searching public sources…</div>` : ''}
-      <div id="cg-research-error"></div>
-      ${c.research ? `
-        <div class="output-card">
-          <div class="output-head"><h4>Research summary</h4></div>
-          <div class="output-body">${escapeHtml(c.research)}</div>
-          <div class="note-box">Review and correct any fact above before generating content — mark anything you can't confirm as "Verification required."</div>
+      ${state.loading.keywords ? `<div class="loading"><div class="spinner"></div> Researching the property and finding keywords…</div>` : ''}
+      <div id="cg-kw-error"></div>
+    </div>
+
+    ${c.availableKeywords.length>0 ? `
+      <div class="card">
+        <div class="section-h">2. Select a few keywords</div>
+        <div class="chip-group">
+          ${c.availableKeywords.map(k=>`<div class="chip ${c.selectedKeywords.includes(k)?'selected':''}" data-kw="${escapeAttr(k)}">${escapeHtml(k)}</div>`).join('')}
         </div>
-      ` : ''}
-    </div>
-
-    <div class="card">
-      <div class="section-h">2. Content spotlight</div>
-      <div class="chip-group">
-        ${SPOTLIGHTS.map(s=>`<div class="chip ${c.spotlights.includes(s)?'selected':''}" data-spotlight="${escapeAttr(s)}">${s}</div>`).join('')}
       </div>
-    </div>
 
-    <div class="card">
-      <div class="section-h">3. Keywords</div>
-      <button class="btn btn-ghost btn-sm" id="cg-suggest-kw" ${state.loading.keywords?'disabled':''}>${ICONS.sparkle} Suggest keywords</button>
-      ${state.loading.keywords ? `<div class="loading"><div class="spinner"></div> Thinking of keywords…</div>` : ''}
-      <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-        ${c.keywords.map(k=>`<span class="kw-chip">${escapeHtml(k)}<button data-remove-kw="${escapeAttr(k)}">✕</button></span>`).join('')}
-        <input id="cg-add-kw" placeholder="add keyword + Enter" style="width:140px; background:var(--bg); border:1px solid var(--border); border-radius:16px; padding:4px 10px; color:var(--text); font-size:12px;"/>
+      <div class="card">
+        <div class="section-h">3. What do you want to generate?</div>
+        <div class="chip-group">
+          ${CONTENT_TYPES.map(t=>`<div class="chip ${c.contentType===t?'selected':''}" data-content-type="${t}">${t}</div>`).join('')}
+        </div>
+        <button class="btn" id="cg-generate" style="margin-top:16px;" ${state.loading.content?'disabled':''}>${ICONS.sparkle} Generate ${c.contentType}</button>
+        ${state.loading.content ? `<div class="loading"><div class="spinner"></div> Writing your ${c.contentType.toLowerCase()}…</div>` : ''}
+        <div id="cg-error"></div>
       </div>
-    </div>
+    ` : ''}
 
-    <div class="card">
-      <div class="section-h">4. Target platforms</div>
-      <div class="chip-group">
-        ${PLATFORMS.map(p=>`<div class="chip ${c.platforms.includes(p)?'selected':''}" data-platform="${p}">${p}</div>`).join('')}
-      </div>
-      <button class="btn" id="cg-generate" style="margin-top:16px;" ${state.loading.content?'disabled':''}>${ICONS.sparkle} Generate Content</button>
-      ${state.loading.content ? `<div class="loading"><div class="spinner"></div> Writing content for ${c.platforms.join(', ')||'selected platforms'}…</div>` : ''}
-      <div id="cg-error"></div>
-    </div>
+    ${c.output ? renderGeneratedOutput(c.contentType, c.output) : ''}
 
-    ${c.output ? renderPlatformOutput(c.output) : ''}
     ${state.contentHistory.length>0 ? `
       <div class="card">
         <div class="section-h">Recent content</div>
-        ${state.contentHistory.slice(0,5).map(h=>`<div class="resource-item"><div class="resource-title">${escapeHtml(h.propertyName)} — ${h.platforms.join(', ')}</div><div class="resource-cat">${fmtDate(h.createdAt)}</div></div>`).join('')}
+        ${state.contentHistory.slice(0,5).map(h=>`<div class="resource-item"><div class="resource-title">${escapeHtml(h.propertyName)} — ${escapeHtml(h.contentType)}</div><div class="resource-cat">${fmtDate(h.createdAt)}</div></div>`).join('')}
       </div>
     ` : ''}
   `;
 }
 
-function renderPlatformOutput(output){
-  let html = '';
-  for(const platform of Object.keys(output)){
-    const d = output[platform];
-    html += `<div class="card"><div class="section-h"><span class="platform-tag">${platform}</span></div>`;
-    if(platform==='tiktok'){
-      html += fieldBlock('Hook', d.hook) + fieldBlock('Script', d.script) + fieldBlock('Caption', d.caption) + hashtagBlock(d.hashtags) + fieldBlock('CTA', d.cta);
-    } else if(platform==='instagram'){
-      html += fieldBlock('Reel script', d.reelScript) + fieldBlock('Caption', d.caption) + hashtagBlock(d.hashtags) + fieldBlock('CTA', d.cta);
-    } else if(platform==='facebook'){
-      html += fieldBlock('Short post', d.shortPost) + fieldBlock('Detailed post', d.longPost) + fieldBlock('CTA', d.cta);
-    } else if(platform==='xiaohongshu'){
-      html += fieldBlock('Title', d.title) + fieldBlock('Post (Simplified Chinese)', d.post) + hashtagBlock(d.hashtags);
-    } else if(platform==='youtube'){
-      html += fieldBlock('Title options', (d.titles||[]).join('\n')) + fieldBlock('Hook', d.hook) + fieldBlock('Description', d.description) + hashtagBlock(d.tags);
-    } else if(platform==='whatsapp'){
-      html += fieldBlock('Message', d.message);
-    }
-    html += `<button class="btn btn-ghost btn-sm" data-compliance="${platform}" ${state.loading['compliance-'+platform]?'disabled':''}>Check compliance</button>`;
-    if(state.loading['compliance-'+platform]) html += `<div class="loading"><div class="spinner"></div> Checking…</div>`;
-    if(state.complianceResults && state.complianceResults[platform]) html += `<div class="warn-box">${escapeHtml(state.complianceResults[platform])}</div>`;
-    html += `</div>`;
+function renderGeneratedOutput(type, d){
+  let html = `<div class="card"><div class="section-h"><span class="platform-tag">${escapeHtml(type)}</span></div>`;
+  if(type==='Content'){
+    html += fieldBlock('Caption', d.caption) + hashtagBlock(d.hashtags) + fieldBlock('CTA', d.cta);
+  } else if(type==='Video Script'){
+    html += fieldBlock('Hook (first 3 seconds)', d.hook) + fieldBlock('Scene-by-scene script', d.script) + fieldBlock('Caption', d.captionText) + fieldBlock('CTA', d.cta);
+  } else if(type==='Slides'){
+    html += `<div class="output-card"><div class="output-head"><h4>Deck title</h4><button class="copy-btn" data-copy="${escapeAttr(d.deckTitle||'')}">${ICONS.copy} Copy</button></div><div class="output-body">${escapeHtml(d.deckTitle||'')}</div></div>`;
+    (d.slides||[]).forEach((s,i)=>{
+      const slideText = s.title + '\n' + (s.bullets||[]).map(b=>'- '+b).join('\n');
+      html += `<div class="output-card"><div class="output-head"><h4>Slide ${i+1}</h4><button class="copy-btn" data-copy="${escapeAttr(slideText)}">${ICONS.copy} Copy</button></div><div class="output-body"><strong>${escapeHtml(s.title)}</strong>\n${(s.bullets||[]).map(b=>'• '+b).join('\n')}</div></div>`;
+    });
   }
+  html += `<button class="btn btn-ghost btn-sm" data-compliance="1" ${state.loading.compliance?'disabled':''}>Check compliance</button>`;
+  if(state.loading.compliance) html += `<div class="loading"><div class="spinner"></div> Checking…</div>`;
+  if(state.complianceResult) html += `<div class="warn-box">${escapeHtml(state.complianceResult)}</div>`;
+  html += `</div>`;
   return html;
 }
 function fieldBlock(label, text){
@@ -290,72 +265,60 @@ function hashtagBlock(tags){
   return `<div class="output-card"><div class="output-head"><h4>Hashtags</h4><button class="copy-btn" data-copy="${escapeAttr(tags.join(' '))}">${ICONS.copy} Copy all</button></div><div class="hashtags">${tags.map(t=>`<span class="hashtag">${escapeHtml(t)}</span>`).join('')}</div></div>`;
 }
 
-async function doResearch(){
+async function findKeywords(){
   const name = document.getElementById('cg-name').value.trim();
-  if(!name){ showError('cg-research-error','Enter a property name first.'); return; }
+  if(!name){ showError('cg-kw-error','Enter a property name first.'); return; }
   state.cg.propertyName = name;
-  state.cg.category = document.getElementById('cg-category').value;
-  state.cg.district = document.getElementById('cg-district').value.trim();
-  state.cg.keyFacts = document.getElementById('cg-facts').value.trim();
-  state.loading.research = true; render();
-  try{
-    const system = `You are researching a Singapore property for a real estate agent's marketing content. Use web search to find factual, publicly available details. Organize your answer under short headings: Location & Connectivity, Tenure & Developer, Unit Mix & Pricing (only if publicly listed), Nearby Schools, Nearby Amenities, Sources. For any fact you cannot verify from search results, write "Verification required" instead of guessing. Do not copy long passages from any source — write in your own words. Keep the whole summary under 300 words.`;
-    const user = `Property name: ${name}\nCategory: ${state.cg.category}\nDistrict/area: ${state.cg.district||'not specified'}\nAgent-provided facts: ${state.cg.keyFacts||'none provided'}`;
-    const research = await callClaude(system, user, 900, true);
-    state.cg.research = research;
-  }catch(e){ showError('cg-research-error', e.message); }
-  state.loading.research = false; render();
-}
-
-async function suggestKeywords(){
-  const c = state.cg;
-  if(!c.propertyName){ document.getElementById('cg-name').focus(); return; }
+  state.cg.output = null; state.complianceResult = '';
   state.loading.keywords = true; render();
   try{
-    const system = `Suggest 8-12 short SEO/hashtag-style keywords for Singapore property social content. Return ONLY a JSON array of strings, nothing else.`;
-    const user = `Property: ${c.propertyName}\nCategory: ${c.category}\nDistrict: ${c.district}\nSpotlights selected: ${c.spotlights.join(', ')||'none yet'}`;
-    const raw = await callClaude(system, user, 300);
-    const kws = JSON.parse(stripFences(raw));
-    c.keywords = Array.from(new Set([...c.keywords, ...kws]));
-  }catch(e){}
+    const system = `You are researching a Singapore property for a real estate agent's marketing content. Use web search to find factual, publicly available details (location, MRT proximity, tenure, developer, general project facts). If you cannot verify something, do not state it as fact. Then, based on the property and what you found, suggest 10-14 short marketing keywords/phrases useful for social content (mix of location, lifestyle, and property-type angles). Return ONLY valid JSON, no preamble, no markdown fences: {"research": string (under 200 words, your findings, note "Verification required" for anything unconfirmed), "keywords": [string, ...10-14 items]}`;
+    const user = `Property name: ${name}`;
+    const raw = await callClaude(system, user, 1200, true);
+    const parsed = JSON.parse(stripFences(raw));
+    state.cg.research = parsed.research || '';
+    state.cg.availableKeywords = parsed.keywords || [];
+    state.cg.selectedKeywords = [];
+  }catch(e){ showError('cg-kw-error', e.message); }
   state.loading.keywords = false; render();
 }
 
 async function generateContent(){
   const c = state.cg;
   if(!c.propertyName){ showError('cg-error','Add a property name first.'); return; }
-  if(c.platforms.length===0){ showError('cg-error','Select at least one platform.'); return; }
-  state.loading.content = true; state.complianceResults = {}; render();
+  state.loading.content = true; state.complianceResult = ''; render();
   try{
-    const schemaParts = [];
-    if(c.platforms.includes('TikTok')) schemaParts.push(`"tiktok": {"hook": string, "script": string, "caption": string, "hashtags": [string,...8-12 items], "cta": string}`);
-    if(c.platforms.includes('Instagram')) schemaParts.push(`"instagram": {"reelScript": string, "caption": string, "hashtags": [string,...8-12 items], "cta": string}`);
-    if(c.platforms.includes('Facebook')) schemaParts.push(`"facebook": {"shortPost": string, "longPost": string, "cta": string}`);
-    if(c.platforms.includes('Xiaohongshu')) schemaParts.push(`"xiaohongshu": {"title": string, "post": string (Simplified Chinese, natural conversational tone for SG readers, moderate emoji), "hashtags": [string,...5-8 items]}`);
-    if(c.platforms.includes('YouTube')) schemaParts.push(`"youtube": {"titles": [string,...3 options], "hook": string, "description": string, "tags": [string,...8-12 items]}`);
-    if(c.platforms.includes('WhatsApp')) schemaParts.push(`"whatsapp": {"message": string}`);
-    const system = `You are a social content writer for a Singapore property agent. Return ONLY valid JSON, no preamble, no markdown fences. Schema: {${schemaParts.join(', ')}}. Tone: warm, professional, natural Singaporean register, no exaggerated or misleading sales language, no guaranteed-return claims. Use the property facts and spotlight angles given; if a fact is marked "Verification required" do not state it as certain.`;
-    const user = `Property: ${c.propertyName}\nCategory: ${c.category}\nDistrict: ${c.district}\nFacts/research: ${c.research || c.keyFacts || 'general facts for this property type'}\nSpotlight angles: ${c.spotlights.join(', ')||'general appeal'}\nKeywords: ${c.keywords.join(', ')||'none specified'}`;
+    let schema, instructions;
+    if(c.contentType==='Content'){
+      schema = `{"caption": string, "hashtags": [string,...8-12 items], "cta": string}`;
+      instructions = `Write a ready-to-post social caption.`;
+    } else if(c.contentType==='Video Script'){
+      schema = `{"hook": string, "script": string (scene-by-scene, 30-45 seconds), "captionText": string, "cta": string}`;
+      instructions = `Write a short vertical video script (TikTok/Reels style) with a strong 3-second hook.`;
+    } else {
+      schema = `{"deckTitle": string, "slides": [{"title": string, "bullets": [string,...3-5 items]}, ...5-8 slides]}`;
+      instructions = `Write a slide-by-slide outline suitable for a short property presentation deck.`;
+    }
+    const system = `You are a content writer for a Singapore property agent. ${instructions} Return ONLY valid JSON, no preamble, no markdown fences. Schema: ${schema}. Tone: warm, professional, natural Singaporean register, no exaggerated or misleading sales language, no guaranteed-return claims. If a fact is marked "Verification required" in the research, do not state it as certain.`;
+    const user = `Property: ${c.propertyName}\nResearch/facts: ${c.research || 'general facts for this property type'}\nSelected keywords/angles: ${c.selectedKeywords.join(', ')||'general appeal'}`;
     const raw = await callClaude(system, user, 2000);
     const parsed = JSON.parse(stripFences(raw));
     c.output = parsed;
-    state.contentHistory.unshift({ id:uid(), propertyName:c.propertyName, platforms:c.platforms.slice(), output:parsed, createdAt:todayISO() });
+    state.contentHistory.unshift({ id:uid(), propertyName:c.propertyName, contentType:c.contentType, output:parsed, createdAt:todayISO() });
     await storageSet('content-history', state.contentHistory);
   }catch(e){ showError('cg-error', e.message); }
   state.loading.content = false; render();
 }
 
-async function checkCompliance(platform){
-  const d = state.cg.output[platform];
-  state.loading['compliance-'+platform] = true; render();
+async function checkCompliance(){
+  const d = state.cg.output;
+  state.loading.compliance = true; render();
   try{
     const system = `You are a lightweight advertising-compliance reviewer for Singapore property marketing content. Flag (in 2-4 short bullet points): unsupported/guaranteed-return claims, unverified prices, misleading urgency, discriminatory wording, or missing agent CTA/identification. If none found, say "No issues flagged — agent should still verify against current CEA/URA/HDB/PDPA requirements before posting." Keep it brief.`;
     const text = JSON.stringify(d);
-    const result = await callClaude(system, text, 300);
-    state.complianceResults = state.complianceResults || {};
-    state.complianceResults[platform] = result;
+    state.complianceResult = await callClaude(system, text, 300);
   }catch(e){}
-  state.loading['compliance-'+platform] = false; render();
+  state.loading.compliance = false; render();
 }
 
 /* ================= LEAD INBOX ================= */
@@ -650,19 +613,15 @@ function attachHandlers(){
   document.querySelectorAll('[data-nav]').forEach(el=>{ el.onclick=()=>{ state.tab=el.getAttribute('data-nav'); state.subTab=''; render(); }; });
   document.querySelectorAll('[data-subtab]').forEach(el=>{ el.onclick=()=>{ state.subTab=el.getAttribute('data-subtab'); render(); }; });
 
-  const rsBtn = document.getElementById('cg-research'); if(rsBtn) rsBtn.onclick = doResearch;
-  document.querySelectorAll('[data-spotlight]').forEach(el=>{
-    el.onclick = () => { const s=el.getAttribute('data-spotlight'); const i=state.cg.spotlights.indexOf(s); if(i>-1) state.cg.spotlights.splice(i,1); else state.cg.spotlights.push(s); render(); };
+  const findKwBtn = document.getElementById('cg-find-kw'); if(findKwBtn) findKwBtn.onclick = findKeywords;
+  document.querySelectorAll('[data-kw]').forEach(el=>{
+    el.onclick = () => { const k=el.getAttribute('data-kw'); const i=state.cg.selectedKeywords.indexOf(k); if(i>-1) state.cg.selectedKeywords.splice(i,1); else state.cg.selectedKeywords.push(k); render(); };
   });
-  document.querySelectorAll('[data-platform]').forEach(el=>{
-    el.onclick = () => { const p=el.getAttribute('data-platform'); const i=state.cg.platforms.indexOf(p); if(i>-1) state.cg.platforms.splice(i,1); else state.cg.platforms.push(p); render(); };
+  document.querySelectorAll('[data-content-type]').forEach(el=>{
+    el.onclick = () => { state.cg.contentType = el.getAttribute('data-content-type'); render(); };
   });
-  const kwBtn = document.getElementById('cg-suggest-kw'); if(kwBtn) kwBtn.onclick = suggestKeywords;
-  document.querySelectorAll('[data-remove-kw]').forEach(el=>{ el.onclick=()=>{ state.cg.keywords = state.cg.keywords.filter(k=>k!==el.getAttribute('data-remove-kw')); render(); }; });
-  const addKwInput = document.getElementById('cg-add-kw');
-  if(addKwInput) addKwInput.onkeydown = (e) => { if(e.key==='Enter' && addKwInput.value.trim()){ state.cg.keywords.push(addKwInput.value.trim()); render(); } };
   const genBtn = document.getElementById('cg-generate'); if(genBtn) genBtn.onclick = generateContent;
-  document.querySelectorAll('[data-compliance]').forEach(el=>{ el.onclick=()=>checkCompliance(el.getAttribute('data-compliance')); });
+  document.querySelectorAll('[data-compliance]').forEach(el=>{ el.onclick=checkCompliance; });
 
   const liAdd = document.getElementById('li-add'); if(liAdd) liAdd.onclick = addLead;
   const csvInput = document.getElementById('li-csv'); if(csvInput) csvInput.onchange = (e)=>{ if(e.target.files[0]) handleCsvImport(e.target.files[0]); };
